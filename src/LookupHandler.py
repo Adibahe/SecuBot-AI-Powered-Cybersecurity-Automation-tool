@@ -3,48 +3,30 @@ import json
 import os
 from Model_client import AzureClient
 
+class BaseModel:
+    def __init__(self, data="", istool=False, tool_out=""):
+        self.data = data
+        self.istool = istool
+        self.tool_out = tool_out
+
+    def to_json(self):
+        return json.dumps(self.__dict__)  # ✅ Ensures valid JSON
+
 functions = []  # Ensure functions is defined before extending it
 api_key = os.getenv("WHOISXML_API_KEY")
 
-def pretty_print(data, task_name="Generic Task"):
-    """Formats and prints JSON output in a readable way and sends it to the AI model."""
-    formatted_data = json.dumps(data, indent=4, sort_keys=True)
-    print(formatted_data)
-    process_and_send_output(task_name, formatted_data)
-
-def process_and_send_output(task_name, processed_output):
-    """Sends processed function output to the AI model."""
-    print("inside process_and_send_output")
-    client = AzureClient.get_client()
-    deployment = AzureClient.deployment
-    truncated_output = processed_output[:4000]  # Prevent sending too much data
-
-    response = client.chat.completions.create(
-        model=deployment,
-        messages=[
-            {"role": "system", "content": "You are a cyber bot that executes functions to process user queries."},
-            {"role": "system", "content": f"The {task_name} task was executed.\nOutput:\n{truncated_output}"}
-        ],
-        stream=False
-    )
-
-    print("🔹 Response sent to AI Model:")
-    print(response.choices[0].message.content)  # Print for debugging
-    return response.choices[0].message.content  # Fixed typo here
-
-
-
 def whois_lookup(query):
     """Queries the WhoisXML API for domain names, IP addresses, or ASNs."""
+    yield f"{json.dumps({'data': "Performing DNS lookup task...", 'istool': False, 'tool_out': ''})}\n"
     base_url = "https://www.whoisxmlapi.com/whoisserver/WhoisService"
     url = f"{base_url}?apiKey={api_key}&domainName={query}&outputFormat=json&type=_all"
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        pretty_print(response.json())
+        return response.json()
     except requests.exceptions.RequestException as e:
         print(f"Error in Whois Lookup: {e}")
-    return None
+        return None
 
 def dns_lookup(domain):
     """Queries the WhoisXML API for DNS records securely."""
@@ -54,10 +36,10 @@ def dns_lookup(domain):
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        pretty_print(response.json())
+        return response.json()
     except requests.exceptions.RequestException as e:
         print(f"Error in Whois Lookup: {e}")
-    return None
+        return None
 
 def ip_geolocation(ip):
     """Queries the WhoisXML API for IP geolocation."""
@@ -66,9 +48,10 @@ def ip_geolocation(ip):
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        pretty_print(response.json())
+        return response.json()
     except requests.exceptions.RequestException as e:
         print(f"Error in IP Geolocation: {e}")
+        return None
     
 def email_verification(email):
     """
@@ -80,7 +63,6 @@ def email_verification(email):
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        pretty_print(data)
         return data
     except requests.exceptions.RequestException as e:
         print(f"Error: {e}")
@@ -95,7 +77,6 @@ def threat_intelligence_lookup(ioc):
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        pretty_print(data)
         return data
     except requests.exceptions.RequestException as e:
         print(f"Error: {e}")
@@ -109,9 +90,11 @@ def ssl_certificate_lookup(domain):
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        pretty_print(response.json())
+        return response.json()
     except requests.exceptions.RequestException as e:
         print(f"Error in SSL Certificate Lookup: {e}")
+        return None
+    
 
 def mac_address_lookup(mac):
     """
@@ -121,9 +104,10 @@ def mac_address_lookup(mac):
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        pretty_print(response.json())
+        return response.json()
     except requests.exceptions.RequestException as e:
         print(f"Error in MAC Address Lookup: {e}")
+        return None
 
 def domain_availability(domain):
     """
@@ -134,8 +118,6 @@ def domain_availability(domain):
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        pretty_print(data)
-        return data
     except requests.exceptions.RequestException as e:
         print(f"Error: {e}")
         return None
@@ -143,10 +125,12 @@ def domain_availability(domain):
 
 
 def lookup_handler(user_query):
+    yield f"{json.dumps({'data': 'Performing lookup task...', 'istool': False, 'tool_out': ''})}\n"
     print("Performing lookup task...")
+    
     client = AzureClient.get_client()
     deployment = AzureClient.deployment
-    
+
     response = client.chat.completions.create(
         model=deployment,
         messages=[
@@ -162,7 +146,7 @@ def lookup_handler(user_query):
     if out is not None:
         print("Executing lookup function...")
         params = json.loads(out.arguments)
-        lookup_type = out.name  # Extract function name
+        lookup_type = out.name
 
         lookup_functions = {
             "whois_lookup": whois_lookup,
@@ -177,11 +161,47 @@ def lookup_handler(user_query):
         
         if lookup_type in lookup_functions:
             query_param = params.get("query", params.get("domain", params.get("ip", params.get("email", params.get("ioc", params.get("mac", ""))))))
+
             if not query_param:
+                yield f"{json.dumps({'data': '❌ Error: No valid input extracted from the query.', 'istool': False, 'tool_out': ''})}\n"
                 print("❌ Error: No valid input extracted from the query.")
                 return
             
-            lookup_functions[lookup_type](query_param)
+            response = lookup_functions[lookup_type](query_param)
+            if hasattr(response, "json"):
+                data = response.json()
+            else:
+                data = response
+
+            print(f"🔍 Debug: Received data of type {type(data)}")
+            if not isinstance(data, (dict, list, str, int, float, bool, type(None))):
+                print("❌ Data is not JSON serializable, converting to string...")
+                data = str(data)
+
+            formatted_data = json.dumps(data, indent=4, sort_keys=True)
+            print(formatted_data)
+            yield f"{json.dumps({'data': 'Performing lookup task...', 'istool': True, 'tool_out': formatted_data})}\n"
+            # Send data to AI
+            truncated_output = formatted_data[:4000]  # Prevent sending too much data
+
+            response = client.chat.completions.create(
+                model=deployment,
+                messages=[
+                    {"role": "system", "content": "You are a cyber bot that executes functions to process user queries."},
+                    {"role": "system", "content": f"The {lookup_type} task was executed.\nOutput:\n{truncated_output}"}
+                ],
+                stream=True
+            )
+
+            for chunk in response:
+                if chunk.choices and hasattr(chunk.choices[0], "delta") and chunk.choices[0].delta:
+                    yield json.dumps({"data": chunk.choices[0].delta.content, "istool": False, "tool_out": ""}) + "\n"
+
+
+            print("🔹 Response sent to AI Model:")
+            print(response.choices[0].message.content)
+            return response.choices[0].message.content
+
             
 functions.extend([
     {"name": "whois_lookup", "description": "Performs a WHOIS lookup on a domain or IP address.", "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "The domain name or IP address to look up."}}, "required": ["query"]}},

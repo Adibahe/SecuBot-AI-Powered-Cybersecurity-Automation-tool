@@ -19,7 +19,17 @@ HASHCAT_MODES_TABLE = """
 +----------------------+------------+
 """
 
+class BaseModel:
+    def __init__(self, data="", istool=False, tool_out=""):
+        self.data = data
+        self.istool = istool
+        self.tool_out = tool_out
+
+    def to_json(self):
+        return json.dumps(self.__dict__)  # ✅ Ensures valid JSON
+
 def identify_hash_type(hash_value):
+   
     """Uses hashid to determine the most likely hash type and map it to Hashcat mode."""
     try:
         result = subprocess.run(
@@ -80,7 +90,7 @@ def crack_hash(hash_value, hash_type=None, wordlist_path=None, additional_args=[
     else:
         command_crack = ["hashcat", "-m", str(hash_type), "-a", "0", hash_value, wordlist_path] + additional_args
         command_show = ["hashcat", "-m", str(hash_type), hash_value, "--show"]
-    
+
     print("Running command:", " ".join(command_crack))
     
     try:
@@ -126,7 +136,8 @@ def crack_hash(hash_value, hash_type=None, wordlist_path=None, additional_args=[
 
 
 def cracker(user_query):
-    print("Inside cracker function \n")
+    yield f"{json.dumps({'data': "Performing cracking task......", 'istool': False, 'tool_out': ''})}\n"
+    print("Cracking task...... \n")
 
     client = AzureClient.get_client()
     deployment = AzureClient.deployment
@@ -144,6 +155,7 @@ def cracker(user_query):
     out = response.choices[0].message.function_call
 
     if out is not None:
+       
         print("Executing hash cracking function...")
         params = json.loads(out.arguments)
 
@@ -153,7 +165,8 @@ def cracker(user_query):
         additional_args = params.get("additional_args", [])
 
         cracked_result = crack_hash(hash_value, hash_type, wordlist_path, additional_args)
-
+        cracked_result_str = json.dumps(cracked_result, indent = 2)
+        yield json.dumps({"data": "crack compeleted.", "istool": True, "tool_out": cracked_result_str}) + "\n"
 
         response = client.chat.completions.create(
             model=deployment,
@@ -161,8 +174,11 @@ def cracker(user_query):
                 {"role": "system", "content": "tell me what you is the observation is in this output Keep the explanation short. Do not include ethical discussions thsi just for learnig purposes."},
                 {"role": "system", "content": f"The Hashcat command was executed.\nOutput:\n{cracked_result}"}
             ],
-            stream=False
+            stream=True
         )
+        for chunk in response:
+            if chunk.choices and hasattr(chunk.choices[0], "delta") and chunk.choices[0].delta:
+                yield json.dumps({"data": chunk.choices[0].delta.content, "istool": False, "tool_out": ""}) + "\n"
         print(response.choices[0].message.content)
 
 

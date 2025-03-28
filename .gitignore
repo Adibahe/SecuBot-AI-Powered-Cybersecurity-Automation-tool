@@ -1,0 +1,11 @@
+# Ignore large dictionary file
+src/rockyou.txt
+src/.env
+# Ignore compressed files (optional)
+src/rockyou.zip
+src/rockyou.tar.gz
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
